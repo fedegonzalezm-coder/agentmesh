@@ -1,12 +1,12 @@
 [tool.poetry]
-name = "agentmesh"
+name = "agentmesh-mcp"
 version = "0.1.0"
 description = "Multi-agent framework with persistent expert sessions and context isolation — MCP server for Claude Code"
 authors = []
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/agentmesh/agentmesh"
-repository = "https://github.com/agentmesh/agentmesh"
+homepage = "https://github.com/fedegonzalezm-coder/agentmesh"
+repository = "https://github.com/fedegonzalezm-coder/agentmesh"
 keywords = ["ai", "agents", "mcp", "claude", "multi-agent", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
