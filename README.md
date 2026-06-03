@@ -1,5 +1,10 @@
 # agentmesh
 
+[![PyPI version](https://img.shields.io/pypi/v/agentmesh-mcp)](https://pypi.org/project/agentmesh-mcp/)
+[![Python](https://img.shields.io/pypi/pyversions/agentmesh-mcp)](https://pypi.org/project/agentmesh-mcp/)
+[![CI](https://img.shields.io/github/actions/workflow/status/fedegonzalezm-coder/agentmesh/ci.yml?branch=master)](https://github.com/fedegonzalezm-coder/agentmesh/actions)
+[![License](https://img.shields.io/github/license/fedegonzalezm-coder/agentmesh)](https://github.com/fedegonzalezm-coder/agentmesh/blob/master/LICENSE)
+
 Multi-agent framework with persistent expert sessions and context isolation — runs as an **MCP server for Claude Code**.
 
 ## The problem
