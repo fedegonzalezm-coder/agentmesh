@@ -1,0 +1,10 @@
+model: claude-sonnet-4-6
+session_store: .agentmesh/sessions
+working_dir: .
+
+experts:
+  general:
+    description: "General codebase expert with broad knowledge of the project structure"
+    tools:
+      - read_file
+      - bash_readonly

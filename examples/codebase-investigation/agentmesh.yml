@@ -1,0 +1,31 @@
+model: claude-sonnet-4-6
+session_store: .agentmesh/sessions
+working_dir: .
+
+# Example: e-commerce app with multiple domains
+# Each expert accumulates knowledge across sessions — the more you use them,
+# the faster and richer their answers become.
+
+experts:
+  orders:
+    description: "Expert in order lifecycle, cancellations, refunds, status transitions, and fulfilment logic"
+    tools:
+      - read_file
+      - bash_readonly
+
+  payments:
+    description: "Expert in payment processing, provider integrations, retries, webhooks, and charge disputes"
+    tools:
+      - read_file
+      - bash_readonly
+
+  auth:
+    description: "Expert in authentication, sessions, guest users, roles, and access control"
+    tools:
+      - read_file
+      - bash_readonly
+
+  frontend:
+    description: "Expert in React/Vue components, state management, routing, and UI patterns"
+    tools:
+      - read_file
