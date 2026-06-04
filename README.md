@@ -5,31 +5,22 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/fedegonzalezm-coder/agentmesh/ci.yml?branch=master)](https://github.com/fedegonzalezm-coder/agentmesh/actions)
 [![License](https://img.shields.io/github/license/fedegonzalezm-coder/agentmesh)](https://github.com/fedegonzalezm-coder/agentmesh/blob/master/LICENSE)
 
-Multi-agent framework with persistent expert sessions and context isolation — runs as an **MCP server for Claude Code**.
+Per-domain expert agents you can query without loading their knowledge into your context — runs as an **MCP server for Claude Code**.
 
 ## The problem
 
-When investigating complex bugs or features that span multiple domains (permissions, database, frontend...), a single Claude Code session accumulates too much context. It gets slow, expensive, and loses focus.
+When investigating bugs or features that span multiple domains (permissions, database, frontend...), a single Claude Code session accumulates context fast. To answer one question about the frontend, it ends up reading permissions code, and that code now lives in your session for the rest of the conversation. Context bleeds and the session gets slower and less focused.
 
-### Why existing approaches don't fully solve it
+You want to be able to ask *"what does the permissions code say about X?"* and get back **just the answer** — without the investigation that produced it ending up in your window.
 
-**Documentation files (SKILL.md, README, notes)** give the agent orientation — but they load into *your* context, not a separate one. Every file you add to help Claude understand a domain is context your session consumes. And they're static: they don't update as Claude investigates.
+## What agentmesh does
 
-**Memory files** have the same problem. They're summaries you write manually after the fact. They help with orientation but they don't capture the actual investigation — the grep results, the file reads, the chain of reasoning. Next session you start from the summary, not from where the investigation left off.
+You define **expert agents** in YAML — each scoped to one domain. When Claude Code needs something outside its current focus, it calls `query_expert`. The expert:
 
-**Neither approach isolates context.** When Claude investigates a permissions issue to answer a question about pipelines, all that permissions code ends up in the pipeline session. Context bleeds.
-
-The real problem is: **there's no way to ask "what does the permissions expert know?" without loading all of that knowledge into the current session.**
-
-## How agentmesh solves it
-
-You define **expert agents** — each specialized in one domain. When Claude Code needs to know something outside its current focus, it calls `query_expert`. The expert:
-
-1. Loads its **persistent session** (accumulated knowledge from prior investigations)
-2. **Investigates** using tools (read files, grep, find) — in its own isolated context
-3. Returns **only the answer** to Claude Code — never the investigation steps
-
-Claude Code's context stays clean. The expert's context grows richer over time.
+1. Runs as a **separate `claude --print` process** — its own isolated context
+2. **Investigates** using read-only tools (read files, grep, find) to answer the question
+3. Returns **only the final answer** to your session — never the investigation steps
+4. Saves the **question + answer** to a per-domain log, so future queries to that domain carry the prior Q&A as context
 
 ```
 Claude Code (main agent):
@@ -37,28 +28,35 @@ Claude Code (main agent):
   → calls query_expert("auth", "can guest users reach the checkout flow?")
 
 agentmesh expert (auth):
-  [loads prior session: 6 messages of accumulated knowledge]
-  [reads GuestSessionMiddleware.php]
-  [greps for guest user checks in checkout]
-  → returns: "Guest users are blocked by RequiresAccount middleware mounted on /checkout/*"
+  [spawned as a separate process, with prior auth Q&A in its system prompt]
+  [reads GuestSessionMiddleware.php, greps for guest checks in checkout]
+  → returns: "Guest users are blocked by RequiresAccount middleware on /checkout/*"
 
-Claude Code receives only: "Guest users are blocked by RequiresAccount middleware mounted on /checkout/*"
+Claude Code receives only that one sentence. The file reads and greps stay in the
+expert's process and never touch your session.
 ```
 
-## What makes it different
+## Honest scope — what it is and isn't
 
-| Property | SKILL.md / docs | Memory files | AutoGen / CrewAI | agentmesh |
-|----------|----------------|--------------|------------------|-----------|
-| Doesn't load into your context | no | no | no | **yes** |
-| Captures live investigation results | no | manual | no | **yes (automatic)** |
-| Persists across sessions | yes (static) | yes (static) | no | **yes (grows with use)** |
-| Context isolation between domains | no | no | no | **yes (core design)** |
-| Works with Claude Code as-is | yes | yes | no | **yes (MCP)** |
+**What persists is the Q&A, not the investigation.** agentmesh stores each question and its final answer. It does **not** store the grep output, file contents, or reasoning the expert used to get there. So "the expert remembers" means "the last few Q&A pairs for that domain are prepended to the next query as text" — closer to an auto-updated memory file than a stateful agent that learns.
+
+**Each query is a fresh process.** The expert has no live memory between calls beyond that stored Q&A text. Every `query_expert` call spawns a full `claude --print` invocation, so it costs a real model call and can take time on deep questions.
+
+**Claude Code already covers part of this.** Its built-in Agent/Task tool gives you context isolation *within a session*, and its memory system persists facts *across* sessions. What agentmesh adds on top:
+
+| | Claude Agent tool | Claude memory | agentmesh |
+|---|---|---|---|
+| Isolates context within a session | yes | n/a | yes |
+| Persists across sessions | no | yes (you curate) | yes (auto, per domain) |
+| Domains defined in shareable/versioned config | no | no | **yes (YAML in repo)** |
+| Explicit, named routing target per domain | no | no | **yes (`query_expert("auth", …)`)** |
+
+If you work in single long sessions, the Agent tool covers most of this. agentmesh earns its place when a **team shares the same domain experts via a versioned YAML file**, or when you repeatedly query the same domains across many separate sessions and want that routing to be explicit and named.
 
 ## Installation
 
 ```bash
-pip install agentmesh
+pip install agentmesh-mcp
 ```
 
 ## Quickstart
@@ -83,17 +81,19 @@ claude mcp list
 agentmesh ask orders "How does the order cancellation flow work?"
 ```
 
+> **Note:** experts run via the `claude` CLI, so you need [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated. The expert inherits your Claude Code auth — no separate API key required.
+
 ## Configuration (agentmesh.yml)
 
 ```yaml
 model: claude-sonnet-4-6
-session_store: .agentmesh/sessions   # where sessions persist (gitignored)
+session_store: .agentmesh/sessions   # where per-domain Q&A logs persist (gitignored)
 working_dir: .                       # root for file reads and shell commands
 
 experts:
   orders:
     description: "Expert in order lifecycle, cancellations, refunds, and fulfilment logic"
-    seed: ./docs/orders.md           # optional: pre-populate with context
+    seed: ./docs/orders.md           # optional: loaded as initial context on the first call
     tools:
       - read_file
       - bash_readonly               # grep, find, cat, git log, ls
@@ -122,28 +122,34 @@ experts:
 agentmesh init                         # create agentmesh.yml
 agentmesh serve                        # start MCP server (used by Claude Code)
 agentmesh ask orders "How does order cancellation work?"   # query an expert directly
-agentmesh sessions list                # view all sessions with stats
-agentmesh sessions clear payments      # reset a domain's accumulated knowledge
+agentmesh sessions list                # view all domains with stats
+agentmesh sessions clear payments      # reset a domain's stored Q&A
 ```
 
 ## How sessions work
 
-Each expert's conversation history is stored in `.agentmesh/sessions/<domain>.json`. Sessions persist across Claude Code invocations — the expert gets smarter over time without repeating investigations.
+Each expert's question/answer history is stored in `.agentmesh/sessions/<domain>.json`. On the next query to that domain, the most recent Q&A pairs (last 10 by default) are prepended to the expert's system prompt as text, so it answers with awareness of what was asked before.
 
-Add `.agentmesh/` to your `.gitignore` (sessions contain investigation artifacts, not source code).
+Note this is **stored Q&A, not stored investigation** — if an earlier answer was wrong, that wrong answer carries forward until you run `agentmesh sessions clear <domain>`. Treat sessions as a curated log, not an infallible memory.
+
+Add `.agentmesh/` to your `.gitignore` (sessions contain question/answer artifacts, not source code).
 
 ## Built-in tools for experts
 
-| Tool | What it does | Restrictions |
-|------|-------------|--------------|
-| `read_file` | Read any file relative to `working_dir` | Read-only |
-| `bash_readonly` | Run shell commands | Allowlist: `grep`, `find`, `cat`, `ls`, `git log`, `git show`, `git diff`, `git blame`, `wc`, `head`, `tail` |
+Experts run through `claude --print` with a read-only allowlist:
+
+| Tool | What it does |
+|------|-------------|
+| `Read` | Read any file relative to `working_dir` |
+| `Bash` (allowlisted) | `grep`, `find`, `cat`, `ls`, `git log`, `git show`, `git diff`, `git blame`, `wc`, `head`, `tail` |
+
+No write, delete, or network commands are permitted.
 
 ## Examples
 
 See [examples/](examples/) for ready-to-use configurations:
 - [`basic/`](examples/basic/) — single general-purpose expert
-- [`codebase-investigation/`](examples/codebase-investigation/) — permissions, database, frontend, API experts
+- [`codebase-investigation/`](examples/codebase-investigation/) — orders, payments, auth, frontend experts
 
 ## License
 
